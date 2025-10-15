@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Classroom 과제 제출 확인 도우미</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://apis.google.com/js/api.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .step-card {
+            transition: all 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 flex items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-4xl mx-auto">
+        <div class="bg-white rounded-2xl shadow-lg p-6 md:p-8 text-center">
+            <h1 class="text-3xl md:text-4xl font-bold text-blue-600">과제 제출 확인 도우미</h1>
+            <p class="text-gray-500 mt-2 mb-6">Google Classroom 과제 제출 현황을 한눈에 확인하세요.</p>
+
+            <!-- Step 1: Login -->
+            <div id="login-container">
+                <p class="mb-4">먼저 Google 계정으로 로그인하여 클래스룸 정보를 가져오세요.</p>
+                <button id="authorize_button" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-lg shadow-md transition-transform transform hover:scale-105">
+                    <svg class="inline-block w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path fill-rule="evenodd" d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10c5.13 0 9.363-3.834 9.934-8.713a.75.75 0 00-1.465-.224A8.5 8.5 0 1112 3.5a.75.75 0 000-1.5c.376 0 .744.022 1.106.064C7.09 2.56 2.56 7.09 2.064 12.994A9.932 9.932 0 0012 22a10 10 0 0010-10c0-5.13-3.834-9.363-8.713-9.934A.75.75 0 0012 2zm0 4a.75.75 0 01.75.75v3.5h3.5a.75.75 0 010 1.5h-3.5v3.5a.75.75 0 01-1.5 0v-3.5h-3.5a.75.75 0 010-1.5h3.5v-3.5A.75.75 0 0112 6z" clip-rule="evenodd"></path></svg>
+                    Google 계정으로 로그인
+                </button>
+            </div>
+
+             <!-- Loading Spinner -->
+            <div id="loader" class="hidden my-8">
+                <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-500 mx-auto"></div>
+                <p class="mt-4 text-gray-600">정보를 불러오는 중입니다...</p>
+            </div>
+
+            <!-- Step 2: Select Course -->
+            <div id="courses-container" class="hidden mt-8 step-card">
+                <h2 class="text-2xl font-semibold mb-4">1. 클래스 선택</h2>
+                <select id="courses-select" class="w-full md:w-2/3 mx-auto p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"></select>
+            </div>
+
+            <!-- Step 3: Select Assignment -->
+            <div id="assignments-container" class="hidden mt-8 step-card">
+                <h2 class="text-2xl font-semibold mb-4">2. 과제 선택</h2>
+                <select id="assignments-select" class="w-full md:w-2/3 mx-auto p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"></select>
+            </div>
+
+            <!-- Step 4: Display Results -->
+            <div id="results-container" class="hidden mt-10 text-left">
+                 <h2 id="result-title" class="text-2xl font-semibold mb-6 text-center">과제 제출 현황</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="bg-green-50 border-2 border-green-200 rounded-xl p-6">
+                        <h3 class="text-xl font-bold text-green-700 mb-4">✅ 제출한 학생</h3>
+                        <ul id="submitted-list" class="space-y-2"></ul>
+                    </div>
+                    <div class="bg-red-50 border-2 border-red-200 rounded-xl p-6">
+                        <h3 class="text-xl font-bold text-red-700 mb-4">❌ 미제출 학생</h3>
+                        <ul id="not-submitted-list" class="space-y-2"></ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <p class="text-center mt-4 text-xs text-gray-400">Google Cloud Platform에서 발급받은 API 키와 클라이언트 ID를 코드에 입력해야 정상적으로 작동합니다.</p>
+    </div>
+
+    <script type="text/javascript">
+        // 중요: 아래 변수에 Google Cloud Console에서 발급받은 값을 입력하세요.
+        // How-to: https://developers.google.com/workspace/guides/create-credentials
+        const API_KEY = 'YOUR_API_KEY';
+        const CLIENT_ID = 'YOUR_CLIENT_ID';
+
+        // Google Classroom API 스코프
+        const DISCOVERY_DOCS = ["https://classroom.googleapis.com/$discovery/rest?version=v1"];
+        const SCOPES = 'https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.coursework.readonly https://www.googleapis.com/auth/classroom.student-submissions.students.readonly https://www.googleapis.com/auth/classroom.rosters.readonly';
+
+        const authorizeButton = document.getElementById('authorize_button');
+        const loader = document.getElementById('loader');
+        
+        const coursesContainer = document.getElementById('courses-container');
+        const coursesSelect = document.getElementById('courses-select');
+        
+        const assignmentsContainer = document.getElementById('assignments-container');
+        const assignmentsSelect = document.getElementById('assignments-select');
+        
+        const resultsContainer = document.getElementById('results-container');
+        const resultTitle = document.getElementById('result-title');
+        const submittedList = document.getElementById('submitted-list');
+        const notSubmittedList = document.getElementById('not-submitted-list');
+
+        let gapiInited = false;
+        let gisInited = false;
+        let tokenClient;
+
+        /**
+         * On load, called to load the auth2 library and API client library.
+         */
+        function handleClientLoad() {
+            gapi.load('client', initializeGapiClient);
+        }
+
+        /**
+         * Initializes the API client library and sets up sign-in state
+         * listeners.
+         */
+        async function initializeGapiClient() {
+            await gapi.client.init({
+                apiKey: API_KEY,
+                discoveryDocs: DISCOVERY_DOCS,
+            });
+            gapiInited = true;
+            maybeEnableButtons();
+        }
+        
+        /**
+         * Called when the signed in status changes, to update the UI
+         * appropriately. After a sign-in, the API is called.
+         */
+        function updateSigninStatus(isSignedIn) {
+            if (isSignedIn) {
+                document.getElementById('login-container').style.display = 'none';
+                loader.classList.remove('hidden');
+                listCourses();
+            } else {
+                 document.getElementById('login-container').style.display = 'block';
+                 coursesContainer.classList.add('hidden');
+                 assignmentsContainer.classList.add('hidden');
+                 resultsContainer.classList.add('hidden');
+            }
+        }
+        
+        function handleAuthClick() {
+            tokenClient.callback = async (resp) => {
+                if (resp.error !== undefined) {
+                    throw (resp);
+                }
+                updateSigninStatus(true);
+            };
+
+            if (gapi.client.getToken() === null) {
+                tokenClient.requestAccessToken({prompt: 'consent'});
+            } else {
+                tokenClient.requestAccessToken({prompt: ''});
+            }
+        }
+
+        function maybeEnableButtons() {
+            if (gapiInited && gisInited) {
+               authorizeButton.onclick = handleAuthClick;
+               authorizeButton.disabled = false;
+            }
+        }
+
+        window.onload = function() {
+            handleClientLoad();
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: CLIENT_ID,
+                scope: SCOPES,
+                callback: '', // defined later
+            });
+            gisInited = true;
+            maybeEnableButtons();
+        }
+
+        // --- API 호출 함수들 ---
+
+        // 1. 클래스 목록 가져오기
+        async function listCourses() {
+            try {
+                const response = await gapi.client.classroom.courses.list({
+                    teacherId: 'me',
+                    courseStates: 'ACTIVE'
+                });
+                
+                loader.classList.add('hidden');
+                coursesContainer.classList.remove('hidden');
+                coursesSelect.innerHTML = '<option value="">-- 클래스를 선택하세요 --</option>';
+                
+                const courses = response.result.courses || [];
+                courses.forEach(course => {
+                    const option = document.createElement('option');
+                    option.value = course.id;
+                    option.textContent = course.name;
+                    coursesSelect.appendChild(option);
+                });
+
+            } catch (err) {
+                console.error("클래스 목록 로딩 실패:", err);
+                alert('클래스 목록을 불러오는 데 실패했습니다. 다시 로그인해주세요.');
+                loader.classList.add('hidden');
+            }
+        }
+
+        // 2. 과제 목록 가져오기
+        async function listAssignments(courseId) {
+            resultsContainer.classList.add('hidden');
+            if (!courseId) {
+                assignmentsContainer.classList.add('hidden');
+                return;
+            }
+            
+            loader.classList.remove('hidden');
+            assignmentsContainer.classList.add('hidden');
+
+            try {
+                const response = await gapi.client.classroom.courses.courseWork.list({
+                    courseId: courseId
+                });
+                
+                loader.classList.add('hidden');
+                assignmentsContainer.classList.remove('hidden');
+                assignmentsSelect.innerHTML = '<option value="">-- 과제를 선택하세요 --</option>';
+
+                const assignments = response.result.courseWork || [];
+                assignments.forEach(assignment => {
+                    const option = document.createElement('option');
+                    option.value = assignment.id;
+                    option.textContent = assignment.title;
+                    assignmentsSelect.appendChild(option);
+                });
+
+            } catch (err) {
+                console.error("과제 목록 로딩 실패:", err);
+                alert('과제 목록을 불러오는 데 실패했습니다.');
+                loader.classList.add('hidden');
+            }
+        }
+
+        // 3. 제출 현황 확인하기
+        async function checkSubmissions(courseId, assignmentId) {
+             if (!assignmentId) {
+                resultsContainer.classList.add('hidden');
+                return;
+            }
+
+            loader.classList.remove('hidden');
+            resultsContainer.classList.add('hidden');
+
+            try {
+                // 전체 학생 명단 가져오기
+                const studentsResponse = await gapi.client.classroom.courses.students.list({
+                    courseId: courseId
+                });
+                const allStudents = new Map(studentsResponse.result.students.map(s => [s.userId, s.profile.name.fullName]));
+
+                // 과제 제출 정보 가져오기
+                const submissionsResponse = await gapi.client.classroom.courses.courseWork.studentSubmissions.list({
+                    courseId: courseId,
+                    courseWorkId: assignmentId,
+                    states: ['TURNED_IN', 'RETURNED'] // 제출 또는 반환된 상태
+                });
+                const submittedStudentIds = new Set((submissionsResponse.result.studentSubmissions || []).map(s => s.userId));
+                
+                submittedList.innerHTML = '';
+                notSubmittedList.innerHTML = '';
+
+                let submittedCount = 0;
+                let notSubmittedCount = 0;
+
+                allStudents.forEach((name, id) => {
+                    const li = document.createElement('li');
+                    li.textContent = name;
+                    li.className = 'p-2 bg-white rounded-md shadow-sm';
+                    if (submittedStudentIds.has(id)) {
+                        submittedList.appendChild(li);
+                        submittedCount++;
+                    } else {
+                        notSubmittedList.appendChild(li);
+                        notSubmittedCount++;
+                    }
+                });
+
+                // 카운트 업데이트
+                document.querySelector('#submitted-list').previousElementSibling.textContent = `✅ 제출한 학생 (${submittedCount}명)`;
+                document.querySelector('#not-submitted-list').previousElementSibling.textContent = `❌ 미제출 학생 (${notSubmittedCount}명)`;
+
+                if(submittedCount === 0) submittedList.innerHTML = '<li class="text-gray-500">제출한 학생이 없습니다.</li>';
+                if(notSubmittedCount === 0) notSubmittedList.innerHTML = '<li class="text-gray-500">모든 학생이 제출했습니다!</li>';
+
+
+                loader.classList.add('hidden');
+                resultsContainer.classList.remove('hidden');
+
+            } catch (err) {
+                console.error("제출 현황 로딩 실패:", err);
+                alert('제출 현황을 불러오는 데 실패했습니다.');
+                loader.classList.add('hidden');
+            }
+        }
+
+        // 이벤트 리스너
+        coursesSelect.addEventListener('change', (e) => {
+            listAssignments(e.target.value);
+        });
+
+        assignmentsSelect.addEventListener('change', (e) => {
+            const courseId = coursesSelect.value;
+            const assignmentId = e.target.value;
+            checkSubmissions(courseId, assignmentId);
+        });
+
+    </script>
+    <script async defer src="https://accounts.google.com/gsi/client"></script>
+
+</body>
+</html>
